@@ -3,8 +3,28 @@ from ev3dev import *
 
 subsystems = []
 
-class PIDSystem:
+class Subsystem:
+    def __init__(self, func):
+        self.thread = None
+        self.enabled = False
+        self.func = func
+        subsystems.append(self)
+
+    def periodic(self):
+        while self.enabled:
+            self.func()
+
+    def start(self):
+        self.enabled = True
+        self.thread = Thread(target=self.periodic)
+        self.thread.start()
+
+    def stop(self):
+        self.enabled = False
+
+class PIDSystem(Subsystem):
     def __init__(self, funcRead, funcWrite, funcStop, kp, ki, kd, tolerance):
+        super(PIDSystem, self).__init__(None)
         self.funcRead = funcRead
         self.funcWrite = funcWrite
         self.funcStop = funcStop
@@ -15,10 +35,7 @@ class PIDSystem:
         self.p = 0
         self.i = 0
         self.d = 0
-        self.thread = None
-        self.enabled = False
         self.setpoint = 0
-        subsystems.append(self)
 
     def setTarget(self, setpoint):
         self.setpoint = setpoint
@@ -51,14 +68,6 @@ class PIDSystem:
             self.i = 0
         else:
             self.i += 1 if self.p > 0 else -1
-
-    def start(self):
-        self.enabled = True
-        self.thread = Thread(target=self.periodic)
-        self.thread.start()
-
-    def stop(self):
-        self.enabled = False
 
     def goToSetpoint(self, setpoint):
         self.setTarget(setpoint)
