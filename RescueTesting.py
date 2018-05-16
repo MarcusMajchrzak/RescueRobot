@@ -81,27 +81,22 @@ def calculateDriftCorrection():
 def getDriftCorrection():
     return -(time.time() - gyroDriftStart) * gyroDriftRate
 
-gyroLock = Lock()
 def getGyro():
-    with (yield from gyroLock):
-        return senGyro.value() - gyroOffset + getDriftCorrection()
+    return senGyro.value() - gyroOffset + getDriftCorrection()
 
-disLock = Lock()
 def getDistance():
-    with (yield from disLock):
-        us = getUltrasonicFront()
+    us = getUltrasonicFront()
 
-        if us < cellLength * 2 / 3 and stage != 1:
-            return subsysLin.setpoint + cellDisFront - us
-        return getEncoderPos()
+    if us < cellLength * 2 / 3 and stage != 1:
+        return subsysLin.setpoint + cellDisFront - us
+    return getEncoderPos()
 
 def setGyro(angle):
     global gyroOffset
     global gyroDriftStart
 
-    with (yield from gyroLock):
-        gyroOffset = senGyro.value() - angle
-        gyroDriftStart = time.time()
+    gyroOffset = senGyro.value() - angle
+    gyroDriftStart = time.time()
 
 def getGyroError():
     return getGyro() - targetAngle
@@ -110,10 +105,8 @@ def resetEncoders():
     motLeft.position = 0
     motRight.position = 0
 
-encLock = Lock()
 def getEncoderPos():
-    with (yield from encLock):
-        return ((motLeft.position + motRight.position) / 2) / 360 * wheelCircumference
+    return ((motLeft.position + motRight.position) / 2) / 360 * wheelCircumference
 
 def getUltrasonicFront():
     return senUltrasonicFront.value()
