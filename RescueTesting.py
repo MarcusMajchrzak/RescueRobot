@@ -38,26 +38,18 @@ gyroDriftStart = 0
 rotation = 0
 speed = 0
 
-#-----Constants-----#
-angleTolerance = 3
-disTolerance = 10
+stage = 0
+step = 0
 
+stepStart = time.time()
+
+#-----Constants-----#
 angNorth = 0
 angEast = 90
 angSouth = 180
 angWest = 270
 
 angCalibration = 5
-
-spDriveSlow = 30
-spDriveMed = 40
-spDriveFast = 80
-
-spTurret = 35
-spClaw = 80
-
-gyroKp = 3
-encoderKp = 3
 
 wallDisLimit = 400
 
@@ -93,6 +85,13 @@ def getDriftCorrection():
 
 def getGyro():
     return senGyro.value() - gyroOffset + getDriftCorrection()
+
+def getDistance():
+    us = getUltrasonicFront()
+
+    if us < cellLength * 2 / 3 and stage != 1:
+        return subsysLin.setpoint + cellDisFront - us
+    return getEncoderPos()
 
 def setGyro(angle):
     global gyroOffset
@@ -152,26 +151,8 @@ def stopSp():
 def stop():
     tankDrive(0, 0)
 
-def isCorrectDis():
-    return abs(getDisError()) <= disTolerance
-
-def isCorrectEnc():
-    return abs(getEncPosError()) <= disTolerance
-
 def turn():
-    turnConstant()
-
-def turnConstant():
-    if getGyroError() < 0:
-        tankDrive(spDriveSlow, -spDriveSlow)
-    else:
-        tankDrive(-spDriveSlow, spDriveSlow)
-
-def turnKp():
-    tankDrive(-getGyroError() * gyroKp, getGyroError() * gyroKp)
-
-def isCorrectHeading():
-    return abs(getGyroError()) <= angleTolerance
+    pass
 
 def mapCell():
     global targetTurret
@@ -292,7 +273,7 @@ def mapCellInitial():
 def checkDis():
     stop()
     time.sleep(0.2)
-    return isCorrectDis()
+    # return isCorrectDis()
 
 def moveToNextCell():
     global targetDis
@@ -312,7 +293,7 @@ def moveToNextCell():
 
     resetEncoders()
 
-    while not isCorrectEnc():
+    while not subsysLin.isOnTarget():
         newSideDis = getUltrasonicTurret()
         #print(str(newSideDis), str(getGyro()), str(senGyro.value()))
         if abs(newSideDis - cellDisLeft) < 80 and abs(newSideDis - lastSideDis) <= 20:
@@ -332,12 +313,12 @@ def moveToNextCell():
         cellsToWall = 0
     
         while getGyro() < targetAngle + 20:
-            tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
+            # tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
             dis = getUltrasonicFront()
             cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
 
         while getGyro() > targetAngle - 20:
-            tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
+            # tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
             dis = getUltrasonicFront()
             cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
             
@@ -362,18 +343,18 @@ def turnToHeading(direction):
     else:
         targetAngle = angWest
 
-    while not isCorrectHeading():
-        turn()
-    stop()
+    # while not isCorrectHeading():
+    #     turn()
+    # stop()
 
 def turnToAngle(angle):
     global targetAngle
 
     targetAngle = angle
 
-    while not isCorrectHeading():
-        turn()
-    stop()
+    # while not isCorrectHeading():
+    #     turn()
+    # stop()
 
 def calibrateGyro():
     calibrateGyroFront()
@@ -388,7 +369,7 @@ def calibrateGyroFront():
     negVar = posVar = 0
     
     while getGyro() < targetAngle + angCalibration + posVar:
-        tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
+        # tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
         dis = getUltrasonicFront()
         ang = getGyro()
         
@@ -404,7 +385,7 @@ def calibrateGyroFront():
             posVar = ang - targetAngle
 
     while getGyro() > targetAngle - angCalibration + negVar:
-        tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
+        # tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
         dis = getUltrasonicFront()
         ang = getGyro()
         
@@ -428,9 +409,8 @@ def calibrateGyroFront():
     turnToAngle(targetAngle)
 
 #-----Threads-----#
-# th_claw = Thread(target=moveClaw);      runThreads[th_claw] = True
-# ps = PIDSystem()
-subsysRot = PIDSystem(getGyro, setRot, stopRot, 2, 0, 0.8, 1)
+subsysLin = PIDSystem(getDistance, setSp, stopSp, 0.6, 0, 0.2, 10)
+subsysRot = PIDSystem(getGyro, setRot, stopRot, 2, 0, 0.8, 3)
 
 drivetrain = Subsystem(drive)
 
@@ -593,6 +573,27 @@ def isRed():
 
     return count
 
+def grabVictim():
+    
+    
+    claw.setTarget(clawMinPos)
+
+def areSubsystemsAlive():
+    res = False
+    for t in subsystems:
+        if t.thread.is_alive():
+            res = True
+
+    return res
+
+def stopSubsystems():
+    for t in subsystems:
+        t.stop()
+
+    while areSubsystemsAlive():
+        pass
+    stop()
+
 def retrace():
     thisCell = path[-1]
     lastCell = path[-2]
@@ -609,24 +610,56 @@ def retrace():
     else:
         east()
 
-while withRobot and not btn.any():
+def progressStep():
+    global stepStart, step
+
+    stepStart = time.time()
+    step += 1
+
+    print(str(stage) + ":" + str(step))
+
+def progressStage():
+    global stepStart, step, stage
+
+    stepStart = time.time()
+    step = 0
+    stage += 1
+
+    print(str(stage) + ":" + str(step))
+
+def stepTime():
+    return time.time() - stepStart
+
+while withRobot and not btn.any() and stage < 3:
     # claw.setTarget(clawMinPos if claw.setpoint == clawMaxPos else clawMaxPos)
     # time.sleep(2)
     # turret.goToSetpoint((turret.setpoint + 180) % 360)
     # time.sleep(0.5)
-    pass
 
-for t in subsystems:
-    t.stop()
+    if stage == 0:
+        if isRed():
+            progressStage()
+    elif stage == 1:
+        if step == 0:
+            subsysLin.setTarget(subsysLin.setpoint + 150)
+            progressStep()
+        elif step == 1:
+            if subsysLin.isOnTarget():
+                progressStep()
+        elif step == 2:
+            if stepTime() > 0.5:
+                claw.setTarget(clawMinPos)
+                progressStep()
+        elif step == 3:
+            if stepTime() > 2:
+                progressStep()
+        elif step == 4:
+            subsysLin.setTarget(subsysLin.setpoint - 150)
+            progressStep()
+        elif step == 5:
+            if subsysLin.isOnTarget():
+                progressStage()
+    elif stage == 2:
+        progressStage()
 
-def areSubsystemsAlive():
-    res = False
-    for t in subsystems:
-        if t.thread.is_alive():
-            res = True
-
-    return res
-
-while areSubsystemsAlive():
-    pass
-stop()
+stopSubsystems()

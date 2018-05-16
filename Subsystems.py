@@ -38,6 +38,7 @@ class PIDSystem(Subsystem):
         self.setpoint = 0
 
     def setTarget(self, setpoint):
+        self.p += self.setpoint - setpoint
         self.setpoint = setpoint
         self.i = 0
 
