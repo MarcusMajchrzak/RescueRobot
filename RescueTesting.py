@@ -111,12 +111,6 @@ def getEncoderPos():
 def getUltrasonicFront():
     return senUltrasonicFront.value()
 
-def getDisError():
-    return getUltrasonicFront() - targetDis
-
-def getEncPosError():
-    return getEncoderPos() - targetEnc
-
 def getUltrasonicTurret():
     return senUltrasonicTurret.value() * 10
 
@@ -130,9 +124,27 @@ def tankDrive(l, r):
 def drive():
     tankDrive(speed + rotation, speed - rotation)
 
+lastUS = 0
+def calcGyroComp():
+    global lastUS
+
+    thisUS = getUltrasonicTurret()
+    print(thisUS)
+
+    rateTowardsWall = thisUS - lastUS
+    velocity = subsysLin.d
+
+    lastUS = thisUS
+
+    if abs(velocity) > abs(rateTowardsWall) and velocity > 0:
+        return math.asin(rateTowardsWall/velocity) + subsysRot.setpoint
+    else:
+        return subsysRot.setpoint
+
 def setRot(rotSys):
     global rotation
     rotation = rotSys.getOutput()
+    setGyro(calcGyroComp())
 
 def stopRot():
     global rotation
@@ -307,23 +319,23 @@ def moveToNextCell():
     cellsToWall = 0
     targetDis = cellDisFront
     
-    while getDisError() > cellLength / 2:
-        cellsToWall = 0
+    # while getDisError() > cellLength / 2:
+    #     cellsToWall = 0
     
-        while getGyro() < targetAngle + 20:
-            # tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
-            dis = getUltrasonicFront()
-            cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
+    #     while getGyro() < targetAngle + 20:
+    #         # tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
+    #         dis = getUltrasonicFront()
+    #         cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
 
-        while getGyro() > targetAngle - 20:
-            # tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
-            dis = getUltrasonicFront()
-            cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
+    #     while getGyro() > targetAngle - 20:
+    #         # tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
+    #         dis = getUltrasonicFront()
+    #         cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
             
-        turnToAngle(targetAngle)
+    #     turnToAngle(targetAngle)
 
-        print(cellsToWall)
-        targetDis = cellsToWall * cellLength + cellDisFront
+    #     print(cellsToWall)
+    #     targetDis = cellsToWall * cellLength + cellDisFront
 
     # while not isCorrectDis() or not checkDis():    
     #     move()
@@ -406,11 +418,11 @@ def calibrateGyroFront():
 
     turnToAngle(targetAngle)
 
-#-----Threads-----#
-subsysLin = PIDSystem(getDistance, setSp, stopSp, 0.6, 0, 0.2, 10)
-subsysRot = PIDSystem(getGyro, setRot, stopRot, 2, 0, 0.8, 3)
+#-----Subsystems-----#
+subsysLin = PIDSystem(getDistance, setSp, stopSp, 0.4, 0.3, 0.2, 10, False)
+subsysRot = PIDSystem(getGyro, setRot, stopRot, 2, 0, 0.8, 3, False)
 
-drivetrain = Subsystem(drive)
+drivetrain = Subsystem(drive, True)
 
 claw = MotorSystem(motClaw, 1.2, 0, 0.5, 5)
 
@@ -624,34 +636,19 @@ def stepTime():
     return time.time() - stepStart
 
 turret.goToSetpoint(90)
-lastUS = 0
-lastDis = 0
 
 while withRobot and not btn.any() and stage < 3:
+    subsysLin.onRun()
+    subsysRot.onRun()
+
     if step == 0:
-        resetEncoders()
-        setGyro(0)
         progressStep()
-        lastUS = getUltrasonicFront()
-        lastDis = 0
     elif step == 1:
         subsysLin.setTarget(subsysLin.setpoint + cellLength)
         progressStep()
     elif step == 2:
         if subsysLin.isOnTarget():
-            step = 0
-        else:
-            thisUS = getUltrasonicFront()
-            thisDis = 0
-
-            rateTowardsWall = thisUS - lastUS
-            velocity = thisDis - lastDis
-
-            lastUS = thisUS
-            lastDis = thisDis
-
-            setGyro(math.asin(rateTowardsWall/velocity) + subsysRot.setpoint)
-            print(getGyro())
+            step = 1
 
     # if stage == 0:
     #     if isRed():

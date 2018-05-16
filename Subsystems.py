@@ -4,10 +4,11 @@ from ev3dev import *
 subsystems = []
 
 class Subsystem:
-    def __init__(self, func):
+    def __init__(self, func, isThreaded):
         self.thread = None
         self.enabled = False
         self.func = func
+        self.isThreaded = isThreaded
         subsystems.append(self)
 
     def periodic(self):
@@ -15,16 +16,17 @@ class Subsystem:
             self.func()
 
     def start(self):
-        self.enabled = True
-        self.thread = Thread(target=self.periodic)
-        self.thread.start()
+        if self.isThreaded:        
+            self.enabled = True
+            self.thread = Thread(target=self.periodic)
+            self.thread.start()
 
     def stop(self):
         self.enabled = False
 
 class PIDSystem(Subsystem):
-    def __init__(self, funcRead, funcWrite, funcStop, kp, ki, kd, tolerance):
-        super(PIDSystem, self).__init__(None)
+    def __init__(self, funcRead, funcWrite, funcStop, kp, ki, kd, tolerance, isThreaded):
+        super(PIDSystem, self).__init__(None, isThreaded)
         self.funcRead = funcRead
         self.funcWrite = funcWrite
         self.funcStop = funcStop
@@ -84,7 +86,7 @@ def setMotor(motorSystem):
 
 class MotorSystem(PIDSystem):
     def __init__(self, motor, kp, ki, kd, tolerance):
-        super(MotorSystem, self).__init__(self.getPos, setMotor, self.stopMotor, kp, ki, kd, tolerance)
+        super(MotorSystem, self).__init__(self.getPos, setMotor, self.stopMotor, kp, ki, kd, tolerance, True)
         self.motor = motor
 
     def getPos(self):
