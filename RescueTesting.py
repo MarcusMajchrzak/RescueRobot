@@ -2,6 +2,8 @@
 
 import time
 import sys, os
+from threading import Thread
+from Subsystems import *
 
 withRobot = True
 
@@ -12,6 +14,7 @@ if withRobot:
     motRight = LargeMotor(OUTPUT_B);                    assert motRight.connected
     motLeft = LargeMotor(OUTPUT_D);                     assert motLeft.connected
     motTurret = MediumMotor(OUTPUT_C);                  assert motTurret.connected
+    motClaw = LargeMotor(OUTPUT_A);                     assert motClaw.connected
     
     senColour = ColorSensor(INPUT_1);                   assert senColour.connected
     senGyro = GyroSensor(INPUT_2);                      assert senGyro.connected
@@ -25,7 +28,6 @@ if withRobot:
 #-----Control Setpoints-----#
 targetAngle = 0
 targetDis = 15
-targetTurret = 180
 targetEnc = 0
 
 gyroOffset = 0
@@ -36,7 +38,6 @@ gyroDriftStart = 0
 #-----Constants-----#
 angleTolerance = 3
 disTolerance = 10
-turretTolerance = 3
 
 angNorth = 0
 angEast = 90
@@ -50,6 +51,7 @@ spDriveMed = 40
 spDriveFast = 80
 
 spTurret = 35
+spClaw = 80
 
 gyroKp = 3
 encoderKp = 3
@@ -62,18 +64,21 @@ cellDisBack = 80
 cellLength = 420
 
 wheelCircumference = 170
+clawMinPos = -130
+clawMaxPos = 0
 
 #-----Robot Functions-----#
 def reset():
     setGyro(0)
-    motTurret.position = 0
+    motTurret.position = 180
     resetEncoders()
+    motClaw.position = 0
 
 def calculateDriftCorrection():
     global gyroDriftRate
 
     position = []
-    for i in range(5):
+    for _ in range(5):
         position.append(senGyro.value())
         time.sleep(1)
     position.append(senGyro.value())
@@ -106,9 +111,6 @@ def getEncoderPos():
 def getEncoderError():
     return motLeft.position - motRight.position
 
-def getTurret():
-    return motTurret.position + 180
-
 def getUltrasonicFront():
     return senUltrasonicFront.value()
 
@@ -131,12 +133,8 @@ def tankDrive(l, r):
 def stop():
     tankDrive(0, 0)
 
-def stopTurret():
-    motTurret.run_direct(duty_cycle_sp = 0)
-
 def stopAll():
     stop()
-    stopTurret()
 
 def driveStraight(speed):
     driveStraightGyro(speed)
@@ -180,41 +178,6 @@ def turnKp():
 def isCorrectHeading():
     return abs(getGyroError()) <= angleTolerance
 
-def spinTurret():
-    if getTurret() < targetTurret:
-        motTurret.run_direct(duty_cycle_sp = spTurret)
-    else:
-        motTurret.run_direct(duty_cycle_sp = -spTurret)
-
-def isCorrectTurret():
-    return abs(getTurret() - targetTurret) <= turretTolerance
-
-def spinTurretToPos(angle):
-    global targetTurret
-    
-    targetTurret = angle
-    while not isCorrectTurret():
-        spinTurret()
-    stopTurret()
-
-def testCellReadings():    
-    distances = {}
-    distances["front"] = getUltrasonicFront()
-
-    spinTurretToPos(270)
-    time.sleep(0.5)
-    distances["left"] = getUltrasonicTurret()
-
-    spinTurretToPos(90)
-    time.sleep(0.5)
-    distances["right"] = getUltrasonicTurret()
-
-    spinTurretToPos(180)
-    time.sleep(0.5)
-    distances["back"] = getUltrasonicTurret()
-
-    return distances
-
 def mapCell():
     global targetTurret
     global targetEnc
@@ -222,11 +185,11 @@ def mapCell():
     options = []
     clearFront = getUltrasonicFront() > wallDisLimit
 
-    spinTurretToPos(270)
+    turret.goToSetpoint(270)
     time.sleep(0.5)
     clearLeft = getUltrasonicTurret() > wallDisLimit
 
-    spinTurretToPos(90)
+    turret.goToSetpoint(90)
     time.sleep(0.5)
     clearRight = getUltrasonicTurret() > wallDisLimit
 
@@ -237,11 +200,11 @@ def mapCell():
         moveEncoder()
     stop()
 
-    spinTurretToPos(270)
+    turret.goToSetpoint(270)
     time.sleep(0.5)
     clearLeft = clearLeft or getUltrasonicTurret() > wallDisLimit
 
-    spinTurretToPos(90)
+    turret.goToSetpoint(90)
     time.sleep(0.5)
     clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
 
@@ -250,11 +213,11 @@ def mapCell():
         moveEncoder()
     stop()
 
-    spinTurretToPos(270)
+    turret.goToSetpoint(270)
     time.sleep(0.5)
     clearLeft = clearLeft or getUltrasonicTurret() > wallDisLimit
 
-    spinTurretToPos(90)
+    turret.goToSetpoint(90)
     time.sleep(0.5)
     clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
     
@@ -307,15 +270,15 @@ def mapCellInitial():
     options = []
     clearFront = getUltrasonicFront() > wallDisLimit
 
-    spinTurretToPos(270)
+    turret.goToSetpoint(270)
     time.sleep(0.5)
     clearLeft = getUltrasonicTurret() > wallDisLimit
 
-    spinTurretToPos(180)
+    turret.goToSetpoint(180)
     time.sleep(0.5)
     clearBack = getUltrasonicTurret() > wallDisLimit
 
-    spinTurretToPos(90)
+    turret.goToSetpoint(90)
     time.sleep(0.5)
     clearRight = getUltrasonicTurret() > wallDisLimit
 
@@ -344,9 +307,9 @@ def moveToNextCell():
 
     wallCorrectionMult = 1
     
-    spinTurretToPos(270)
+    turret.goToSetpoint(270)
     if getUltrasonicTurret() > cellLength:
-        spinTurretToPos(90)
+        turret.goToSetpoint(90)
         wallCorrectionMult = -1
 
     lastSideDis = getUltrasonicTurret()
@@ -468,6 +431,14 @@ def calibrateGyroFront():
     setGyro(targetAngle + getGyro() - (minAng + maxAng) / 2 + correction)
 
     turnToAngle(targetAngle)
+
+#-----Threads-----#
+# th_claw = Thread(target=moveClaw);      runThreads[th_claw] = True
+# ps = PIDSystem()
+claw = MotorSystem(motClaw, 1.2, 0, 0.5, 5)
+
+turret = MotorSystem(motTurret, 0.4, 1, 0.1, 3)
+turret.setTarget(180)
 
 #-----Depth-First Search-----#
 def getNorth():
@@ -596,24 +567,27 @@ lastReversed = True
 
 if withRobot:
     reset()
-    calculateDriftCorrection()
+    # calculateDriftCorrection()
 
     Leds.set_color(Leds.LEFT, Leds.RED)
     Leds.set_color(Leds.RIGHT, Leds.RED)
 
-    while not btn.any():
-        pass
+    # while not btn.any():
+    #     pass
 
     Leds.set_color(Leds.LEFT, Leds.GREEN)
     Leds.set_color(Leds.RIGHT, Leds.GREEN)
 
     time.sleep(1)
+
+    for t in subsystems:
+        t.start()
     
     field[path[-1][1]][path[-1][0]] = mapCellInitial()
 
 def isRed():
     count = 0
-    for i in range(10):
+    for _ in range(10):
         time.sleep(0.1)
         if senColour.color == 5:
             count += 1
@@ -637,76 +611,7 @@ def retrace():
         east()
 
 while withRobot:
-    if not lastReversed:
-        field[path[-1][1]][path[-1][0]] = mapCell()        
-
-    options = getOptions()
-
-    if "n" in options:
-        north()
-        lastReversed = False
-    elif "e" in options:
-        east()
-        lastReversed = False
-    elif "w" in options:
-        west()
-        lastReversed = False
-    elif "s" in options:
-        south()
-        lastReversed = False
-    else:
-        if not lastReversed:
-            printGrid(path)
-            
-        retrace()
-        lastReversed = True
-        del path[-1]
-        del path[-1]
-
-    logPosition()
-    print(path[-1])
-
-    red = isRed()
-
-    while red >= 3:
-        if red >= 8:
-            print("Found it!")
-
-            Leds.set_color(Leds.LEFT, Leds.AMBER)
-            Leds.set_color(Leds.RIGHT, Leds.AMBER)
-            
-            exit()
-        else:
-            red = isRed()
-
-    #print(mapCell())
-    
-    #print(str(time.time() - startTime) + ": " + str(getGyro()))
-
-#-----Execute Search-----#
-lastReversed = False
-
-while len(path) > 0 and not "f" in field[path[-1][1]][path[-1][0]]:
-    options = getOptions()
-    if "n" in options:
-        north()
-        lastReversed = False
-    elif "e" in options:
-        east()
-        lastReversed = False
-    elif "s" in options:
-        south()
-        lastReversed = False
-    elif "w" in options:
-        west()
-        lastReversed = False
-    else:
-        if not lastReversed:
-            printGrid(path)
-        del path[-1]
-        lastReversed = True
-    logPosition()
-
-if len(path) > 0:
-    printGrid(path)
-
+    # claw.setTarget(clawMinPos if claw.setpoint == clawMaxPos else clawMaxPos)
+    # time.sleep(2)
+    turret.goToSetpoint((turret.setpoint + 180) % 360)
+    time.sleep(0.5)
