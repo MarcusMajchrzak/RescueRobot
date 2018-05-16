@@ -35,6 +35,9 @@ gyroOffset = 0
 gyroDriftRate = 0
 gyroDriftStart = 0
 
+rotation = 0
+speed = 0
+
 #-----Constants-----#
 angleTolerance = 3
 disTolerance = 10
@@ -108,9 +111,6 @@ def resetEncoders():
 def getEncoderPos():
     return ((motLeft.position + motRight.position) / 2) / 360 * wheelCircumference
 
-def getEncoderError():
-    return motLeft.position - motRight.position
-
 def getUltrasonicFront():
     return senUltrasonicFront.value()
 
@@ -130,32 +130,27 @@ def tankDrive(l, r):
     motLeft.run_direct(duty_cycle_sp = l)
     motRight.run_direct(duty_cycle_sp = r)
 
+def drive():
+    tankDrive(speed + rotation, speed - rotation)
+
+def setRot(rotSys):
+    global rotation
+    rotation = rotSys.getOutput()
+
+def stopRot():
+    global rotation
+    rotation = 0
+
+def setSp(linSys):
+    global speed
+    speed = linSys.getOutput()
+
+def stopSp():
+    global speed
+    speed = 0
+
 def stop():
     tankDrive(0, 0)
-
-def stopAll():
-    stop()
-
-def driveStraight(speed):
-    driveStraightGyro(speed)
-
-def driveStraightGyro(speed):
-    tankDrive(speed - getGyroError() * gyroKp, speed + getGyroError() * gyroKp)
-
-def driveStraightEncoder(speed):
-    tankDrive(speed - getEncoderError() * encoderKp, speed + getEncoderError() * encoderKp)
-
-def move():
-    if getDisError() < 0:
-        driveStraight(-spDriveSlow)
-    else:
-        driveStraight(spDriveSlow)
-
-def moveEncoder():
-    if getEncPosError() < 0:
-        driveStraight(spDriveMed)
-    else:
-        driveStraight(-spDriveMed)
 
 def isCorrectDis():
     return abs(getDisError()) <= disTolerance
@@ -196,9 +191,9 @@ def mapCell():
     resetEncoders()
     
     targetEnc = 50
-    while not isCorrectEnc():
-        moveEncoder()
-    stop()
+    # while not isCorrectEnc():
+    #     moveEncoder()
+    # stop()
 
     turret.goToSetpoint(270)
     time.sleep(0.5)
@@ -209,9 +204,9 @@ def mapCell():
     clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
 
     targetEnc = -50
-    while not isCorrectEnc():
-        moveEncoder()
-    stop()
+    # while not isCorrectEnc():
+    #     moveEncoder()
+    # stop()
 
     turret.goToSetpoint(270)
     time.sleep(0.5)
@@ -222,9 +217,9 @@ def mapCell():
     clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
     
     targetEnc = 0
-    while not isCorrectEnc():
-        moveEncoder()
-    stop()
+    # while not isCorrectEnc():
+    #     moveEncoder()
+    # stop()
     
     targetTurret = 180
 
@@ -327,7 +322,7 @@ def moveToNextCell():
                 setGyro(getGyro() - 5 * wallCorrectionMult)
             lastSideDis = newSideDis
 
-        moveEncoder()
+        # moveEncoder()
 
     stop()
     cellsToWall = 0
@@ -351,9 +346,9 @@ def moveToNextCell():
         print(cellsToWall)
         targetDis = cellsToWall * cellLength + cellDisFront
 
-    while not isCorrectDis() or not checkDis():    
-        move()
-    stop()
+    # while not isCorrectDis() or not checkDis():    
+    #     move()
+    # stop()
 
 def turnToHeading(direction):
     global targetAngle
@@ -435,6 +430,10 @@ def calibrateGyroFront():
 #-----Threads-----#
 # th_claw = Thread(target=moveClaw);      runThreads[th_claw] = True
 # ps = PIDSystem()
+subsysRot = PIDSystem(getGyro, setRot, stopRot, 2, 0, 0.8, 1)
+
+drivetrain = Subsystem(drive)
+
 claw = MotorSystem(motClaw, 1.2, 0, 0.5, 5)
 
 turret = MotorSystem(motTurret, 0.4, 1, 0.1, 3)
@@ -583,7 +582,7 @@ if withRobot:
     for t in subsystems:
         t.start()
     
-    field[path[-1][1]][path[-1][0]] = mapCellInitial()
+    # field[path[-1][1]][path[-1][0]] = mapCellInitial()
 
 def isRed():
     count = 0
@@ -610,8 +609,24 @@ def retrace():
     else:
         east()
 
-while withRobot:
+while withRobot and not btn.any():
     # claw.setTarget(clawMinPos if claw.setpoint == clawMaxPos else clawMaxPos)
     # time.sleep(2)
-    turret.goToSetpoint((turret.setpoint + 180) % 360)
-    time.sleep(0.5)
+    # turret.goToSetpoint((turret.setpoint + 180) % 360)
+    # time.sleep(0.5)
+    pass
+
+for t in subsystems:
+    t.stop()
+
+def areSubsystemsAlive():
+    res = False
+    for t in subsystems:
+        if t.thread.is_alive():
+            res = True
+
+    return res
+
+while areSubsystemsAlive():
+    pass
+stop()
