@@ -2,6 +2,8 @@
 
 import time
 import sys, os
+import math
+from asyncio import Lock
 from threading import Thread
 from Subsystems import *
 
@@ -26,10 +28,6 @@ if withRobot:
     btn = Button()
 
 #-----Control Setpoints-----#
-targetAngle = 0
-targetDis = 15
-targetEnc = 0
-
 gyroOffset = 0
 
 gyroDriftRate = 0
@@ -83,22 +81,27 @@ def calculateDriftCorrection():
 def getDriftCorrection():
     return -(time.time() - gyroDriftStart) * gyroDriftRate
 
+gyroLock = Lock()
 def getGyro():
-    return senGyro.value() - gyroOffset + getDriftCorrection()
+    with (yield from gyroLock):
+        return senGyro.value() - gyroOffset + getDriftCorrection()
 
+disLock = Lock()
 def getDistance():
-    us = getUltrasonicFront()
+    with (yield from disLock):
+        us = getUltrasonicFront()
 
-    if us < cellLength * 2 / 3 and stage != 1:
-        return subsysLin.setpoint + cellDisFront - us
-    return getEncoderPos()
+        if us < cellLength * 2 / 3 and stage != 1:
+            return subsysLin.setpoint + cellDisFront - us
+        return getEncoderPos()
 
 def setGyro(angle):
     global gyroOffset
     global gyroDriftStart
 
-    gyroOffset = senGyro.value() - angle
-    gyroDriftStart = time.time()
+    with (yield from gyroLock):
+        gyroOffset = senGyro.value() - angle
+        gyroDriftStart = time.time()
 
 def getGyroError():
     return getGyro() - targetAngle
@@ -107,8 +110,10 @@ def resetEncoders():
     motLeft.position = 0
     motRight.position = 0
 
+encLock = Lock()
 def getEncoderPos():
-    return ((motLeft.position + motRight.position) / 2) / 360 * wheelCircumference
+    with (yield from encLock):
+        return ((motLeft.position + motRight.position) / 2) / 360 * wheelCircumference
 
 def getUltrasonicFront():
     return senUltrasonicFront.value()
@@ -573,11 +578,6 @@ def isRed():
 
     return count
 
-def grabVictim():
-    
-    
-    claw.setTarget(clawMinPos)
-
 def areSubsystemsAlive():
     res = False
     for t in subsystems:
@@ -630,36 +630,63 @@ def progressStage():
 def stepTime():
     return time.time() - stepStart
 
-while withRobot and not btn.any() and stage < 3:
-    # claw.setTarget(clawMinPos if claw.setpoint == clawMaxPos else clawMaxPos)
-    # time.sleep(2)
-    # turret.goToSetpoint((turret.setpoint + 180) % 360)
-    # time.sleep(0.5)
+turret.goToSetpoint(90)
+lastUS = 0
+lastDis = 0
 
-    if stage == 0:
-        if isRed():
-            progressStage()
-    elif stage == 1:
-        if step == 0:
-            subsysLin.setTarget(subsysLin.setpoint + 150)
-            progressStep()
-        elif step == 1:
-            if subsysLin.isOnTarget():
-                progressStep()
-        elif step == 2:
-            if stepTime() > 0.5:
-                claw.setTarget(clawMinPos)
-                progressStep()
-        elif step == 3:
-            if stepTime() > 2:
-                progressStep()
-        elif step == 4:
-            subsysLin.setTarget(subsysLin.setpoint - 150)
-            progressStep()
-        elif step == 5:
-            if subsysLin.isOnTarget():
-                progressStage()
-    elif stage == 2:
-        progressStage()
+while withRobot and not btn.any() and stage < 3:
+    if step == 0:
+        resetEncoders()
+        setGyro(0)
+        progressStep()
+        lastUS = getUltrasonicFront()
+        lastDis = 0
+    elif step == 1:
+        subsysLin.setTarget(subsysLin.setpoint + cellLength)
+        progressStep()
+    elif step == 2:
+        if subsysLin.isOnTarget():
+            step = 0
+        else:
+            thisUS = getUltrasonicFront()
+            thisDis = 0
+
+            rateTowardsWall = thisUS - lastUS
+            velocity = thisDis - lastDis
+
+            lastUS = thisUS
+            lastDis = thisDis
+
+            setGyro(math.asin(rateTowardsWall/velocity) + subsysRot.setpoint)
+            print(getGyro())
+
+    # if stage == 0:
+    #     if isRed():
+    #         progressStage()
+    #     else:
+    #         pass
+    # elif stage == 1:
+    #     if step == 0:
+    #         subsysLin.setTarget(subsysLin.setpoint + 150)
+    #         progressStep()
+    #     elif step == 1:
+    #         if subsysLin.isOnTarget():
+    #             progressStep()
+    #     elif step == 2:
+    #         if stepTime() > 0.5:
+    #             claw.setTarget(clawMinPos)
+    #             progressStep()
+    #     elif step == 3:
+    #         if stepTime() > 2:
+    #             progressStep()
+    #     elif step == 4:
+    #         subsysLin.setTarget(subsysLin.setpoint - 150)
+    #         progressStep()
+    #     elif step == 5:
+    #         if subsysLin.isOnTarget():
+    #             progressStage()
+    # elif stage == 2:
+    #     progressStage()
+
 
 stopSubsystems()
