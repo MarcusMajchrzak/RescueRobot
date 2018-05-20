@@ -47,7 +47,10 @@ angEast = 90
 angSouth = 180
 angWest = 270
 
-angCalibration = 5
+angCalibration = 3
+
+spTurret = 35
+spDrive = 45
 
 wallDisLimit = 400
 
@@ -98,9 +101,6 @@ def setGyro(angle):
     gyroOffset = senGyro.value() - angle
     gyroDriftStart = time.time()
 
-def getGyroError():
-    return getGyro() - targetAngle
-
 def resetEncoders():
     motLeft.position = 0
     motRight.position = 0
@@ -121,30 +121,37 @@ def tankDrive(l, r):
     motLeft.run_direct(duty_cycle_sp = l)
     motRight.run_direct(duty_cycle_sp = r)
 
+def revalSp(speed, system):
+    if system.isOnTarget():
+        return 0
+    elif speed > 0:
+        return spDrive
+    return -spDrive
+    
+
 def drive():
-    tankDrive(speed + rotation, speed - rotation)
+    tankDrive(revalSp(speed, subsysLin) + rotation, revalSp(speed, subsysLin) - rotation)
 
-lastUS = 0
+lastSideDis = 0
 def calcGyroComp():
-    global lastUS
+    global lastSideDis
 
-    thisUS = getUltrasonicTurret()
-    print(thisUS)
+    if lastSideDis == 0:
+        lastSideDis = getUltrasonicTurret()
 
-    rateTowardsWall = thisUS - lastUS
-    velocity = subsysLin.d
+    wallCorrectionMult = 1 if turret.setpoint == 270 else -1
+    newSideDis = getUltrasonicTurret()
 
-    lastUS = thisUS
-
-    if abs(velocity) > abs(rateTowardsWall) and velocity > 0:
-        return math.asin(rateTowardsWall/velocity) + subsysRot.setpoint
-    else:
-        return subsysRot.setpoint
+    if abs(newSideDis - cellDisLeft) < 80 and abs(newSideDis - lastSideDis) <= 20:
+        if newSideDis > lastSideDis:
+            setGyro(getGyro() + angCalibration * wallCorrectionMult)
+        elif newSideDis < lastSideDis:
+            setGyro(getGyro() - angCalibration * wallCorrectionMult)
+    lastSideDis = newSideDis
 
 def setRot(rotSys):
     global rotation
     rotation = rotSys.getOutput()
-    setGyro(calcGyroComp())
 
 def stopRot():
     global rotation
@@ -164,10 +171,7 @@ def stop():
 def turn():
     pass
 
-def mapCell():
-    global targetTurret
-    global targetEnc
-    
+def mapCell():    
     options = []
     clearFront = getUltrasonicFront() > wallDisLimit
 
@@ -179,42 +183,7 @@ def mapCell():
     time.sleep(0.5)
     clearRight = getUltrasonicTurret() > wallDisLimit
 
-    resetEncoders()
-    
-    targetEnc = 50
-    # while not isCorrectEnc():
-    #     moveEncoder()
-    # stop()
-
-    turret.goToSetpoint(270)
-    time.sleep(0.5)
-    clearLeft = clearLeft or getUltrasonicTurret() > wallDisLimit
-
-    turret.goToSetpoint(90)
-    time.sleep(0.5)
-    clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
-
-    targetEnc = -50
-    # while not isCorrectEnc():
-    #     moveEncoder()
-    # stop()
-
-    turret.goToSetpoint(270)
-    time.sleep(0.5)
-    clearLeft = clearLeft or getUltrasonicTurret() > wallDisLimit
-
-    turret.goToSetpoint(90)
-    time.sleep(0.5)
-    clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
-    
-    targetEnc = 0
-    # while not isCorrectEnc():
-    #     moveEncoder()
-    # stop()
-    
-    targetTurret = 180
-
-    if targetAngle == angNorth:
+    if subsysRot.setpoint == angNorth:
         if clearFront:
             options.append("n")
         if clearLeft:
@@ -223,7 +192,7 @@ def mapCell():
             options.append("e")
         options.append("s")
         
-    elif targetAngle == angEast:
+    elif subsysRot.setpoint == angEast:
         if clearFront:
             options.append("e")
         if clearLeft:
@@ -232,7 +201,7 @@ def mapCell():
             options.append("s")
         options.append("w")
         
-    elif targetAngle == angSouth:
+    elif subsysRot.setpoint == angSouth:
         if clearFront:
             options.append("s")
         if clearLeft:
@@ -241,7 +210,7 @@ def mapCell():
             options.append("w")
         options.append("n")
         
-    elif targetAngle == angWest:
+    elif subsysRot.setpoint == angWest:
         if clearFront:
             options.append("w")
         if clearLeft:
@@ -280,153 +249,79 @@ def mapCellInitial():
     print(options)
     return "".join(options)
 
-def checkDis():
-    stop()
-    time.sleep(0.2)
-    # return isCorrectDis()
+# def calibrateGyro():
+#     calibrateGyroFront()
 
-def moveToNextCell():
-    global targetDis
-    global targetEnc
-
-    resetEncoders()
-
-    wallCorrectionMult = 1
+# def calibrateGyroFront():
+#     if getUltrasonicFront() / cellLength >= 1:
+#         return
     
-    turret.goToSetpoint(270)
-    if getUltrasonicTurret() > cellLength:
-        turret.goToSetpoint(90)
-        wallCorrectionMult = -1
-
-    lastSideDis = getUltrasonicTurret()
-    targetEnc = cellLength
-
-    resetEncoders()
-
-    while not subsysLin.isOnTarget():
-        newSideDis = getUltrasonicTurret()
-        #print(str(newSideDis), str(getGyro()), str(senGyro.value()))
-        if abs(newSideDis - cellDisLeft) < 80 and abs(newSideDis - lastSideDis) <= 20:
-            if newSideDis > lastSideDis:
-                setGyro(getGyro() + 5 * wallCorrectionMult)
-            elif newSideDis < lastSideDis:
-                setGyro(getGyro() - 5 * wallCorrectionMult)
-            lastSideDis = newSideDis
-
-        # moveEncoder()
-
-    stop()
-    cellsToWall = 0
-    targetDis = cellDisFront
+#     minDis = 3000
+#     minAng = getGyro()
+#     maxAng = getGyro()
+#     negVar = posVar = 0
     
-    # while getDisError() > cellLength / 2:
-    #     cellsToWall = 0
-    
-    #     while getGyro() < targetAngle + 20:
-    #         # tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
-    #         dis = getUltrasonicFront()
-    #         cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
-
-    #     while getGyro() > targetAngle - 20:
-    #         # tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
-    #         dis = getUltrasonicFront()
-    #         cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
-            
-    #     turnToAngle(targetAngle)
-
-    #     print(cellsToWall)
-    #     targetDis = cellsToWall * cellLength + cellDisFront
-
-    # while not isCorrectDis() or not checkDis():    
-    #     move()
-    # stop()
-
-def turnToHeading(direction):
-    global targetAngle
-
-    if direction == "n":
-        targetAngle = angNorth
-    elif direction == "e":
-        targetAngle = angEast
-    elif direction == "s":
-        targetAngle = angSouth
-    else:
-        targetAngle = angWest
-
-    # while not isCorrectHeading():
-    #     turn()
-    # stop()
-
-def turnToAngle(angle):
-    global targetAngle
-
-    targetAngle = angle
-
-    # while not isCorrectHeading():
-    #     turn()
-    # stop()
-
-def calibrateGyro():
-    calibrateGyroFront()
-
-def calibrateGyroFront():
-    if getUltrasonicFront() / cellLength >= 1:
-        return
-    
-    minDis = 3000
-    minAng = getGyro()
-    maxAng = getGyro()
-    negVar = posVar = 0
-    
-    while getGyro() < targetAngle + angCalibration + posVar:
-        # tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
-        dis = getUltrasonicFront()
-        ang = getGyro()
+#     while getGyro() < targetAngle + angCalibration + posVar:
+#         # tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
+#         dis = getUltrasonicFront()
+#         ang = getGyro()
         
-        #print(str(ang) + ": " + str(dis))
+#         #print(str(ang) + ": " + str(dis))
         
-        if dis < minDis and dis > 20:
-            minDis = dis
-            minAng = ang
-            maxAng = ang
-            posVar = ang - targetAngle
-        elif dis == minDis:
-            maxAng = ang
-            posVar = ang - targetAngle
+#         if dis < minDis and dis > 20:
+#             minDis = dis
+#             minAng = ang
+#             maxAng = ang
+#             posVar = ang - targetAngle
+#         elif dis == minDis:
+#             maxAng = ang
+#             posVar = ang - targetAngle
 
-    while getGyro() > targetAngle - angCalibration + negVar:
-        # tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
-        dis = getUltrasonicFront()
-        ang = getGyro()
+#     while getGyro() > targetAngle - angCalibration + negVar:
+#         # tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
+#         dis = getUltrasonicFront()
+#         ang = getGyro()
         
-        #print(str(ang) + ": " + str(dis))
+#         #print(str(ang) + ": " + str(dis))
         
-        if dis < minDis and dis > 20:
-            minDis = dis
-            minAng = ang
-            maxAng = ang
-            negVar = ang - targetAngle
-        elif dis == minDis:
-            minAng = ang
-            negVar = ang - targetAngle
+#         if dis < minDis and dis > 20:
+#             minDis = dis
+#             minAng = ang
+#             maxAng = ang
+#             negVar = ang - targetAngle
+#         elif dis == minDis:
+#             minAng = ang
+#             negVar = ang - targetAngle
 
-    stop()
+#     stop()
     
-    correction = 0
+#     correction = 0
 
-    setGyro(targetAngle + getGyro() - (minAng + maxAng) / 2 + correction)
+#     setGyro(targetAngle + getGyro() - (minAng + maxAng) / 2 + correction)
 
-    turnToAngle(targetAngle)
+#     turnToAngle(targetAngle)
+
+def getTurret():
+    return motTurret.position
+
+def setTurret(subsystem):
+    speed = 0
+    if not turret.isOnTarget():
+        speed = spTurret if subsystem.getOutput() > 0 else -spTurret
+    runMotor(motTurret, speed)
+
+def stopTurret():
+    motTurret.stop()
 
 #-----Subsystems-----#
-subsysLin = PIDSystem(getDistance, setSp, stopSp, 0.4, 0.3, 0.2, 10, False)
+subsysLin = PIDSystem(getDistance, setSp, stopSp, 0.4, 0.4, 0.05, 10, False)
 subsysRot = PIDSystem(getGyro, setRot, stopRot, 2, 0, 0.8, 3, False)
 
 drivetrain = Subsystem(drive, True)
 
 claw = MotorSystem(motClaw, 1.2, 0, 0.5, 5)
 
-turret = MotorSystem(motTurret, 0.4, 1, 0.1, 3)
+turret = PIDSystem(getTurret, setTurret, stopTurret, 0.5, 2, 0.1, 3, True)
 turret.setTarget(180)
 
 #-----Depth-First Search-----#
@@ -445,30 +340,22 @@ def getWest():
 def north():
     global path
     path.append(getNorth())
-    turnToHeading("n")
-    moveToNextCell()
-    calibrateGyro()
+    subsysRot.setTarget(angNorth)
 
 def east():
     global path
     path.append(getEast())
-    turnToHeading("e")
-    moveToNextCell()
-    calibrateGyro()
+    subsysRot.setTarget(angEast)
 
 def south():
     global path
     path.append(getSouth())
-    turnToHeading("s")
-    moveToNextCell()
-    calibrateGyro()
+    subsysRot.setTarget(angSouth)
 
 def west():
     global path
     path.append(getWest())
-    turnToHeading("w")
-    moveToNextCell()
-    calibrateGyro()
+    subsysRot.setTarget(angWest)
 
 def canNorth():
     return not getNorth() in visited and "n" in field[path[-1][1]][path[-1][0]] and path[-1][1] < maxY
@@ -499,18 +386,6 @@ def getOptions():
 def logPosition():
     if len(path) > 0 and not path[-1] in visited:
         visited.append(path[-1])
-
-def test():
-    north()
-    logPosition()
-    east()
-    logPosition()
-    south()
-    logPosition()
-    west()
-    logPosition()
-    print(path)
-    print(visited)
 
 def printGrid(path):
     print(" " + "-"*((maxX - minX)*2+3) + " ")
@@ -554,26 +429,6 @@ visited.append(path[-1])
 startTime = time.time()
 lastReversed = True
 
-if withRobot:
-    reset()
-    # calculateDriftCorrection()
-
-    Leds.set_color(Leds.LEFT, Leds.RED)
-    Leds.set_color(Leds.RIGHT, Leds.RED)
-
-    # while not btn.any():
-    #     pass
-
-    Leds.set_color(Leds.LEFT, Leds.GREEN)
-    Leds.set_color(Leds.RIGHT, Leds.GREEN)
-
-    time.sleep(1)
-
-    for t in subsystems:
-        t.start()
-    
-    # field[path[-1][1]][path[-1][0]] = mapCellInitial()
-
 def isRed():
     count = 0
     for _ in range(10):
@@ -586,7 +441,7 @@ def isRed():
 def areSubsystemsAlive():
     res = False
     for t in subsystems:
-        if t.thread.is_alive():
+        if t.thread and t.thread.is_alive():
             res = True
 
     return res
@@ -635,20 +490,87 @@ def progressStage():
 def stepTime():
     return time.time() - stepStart
 
-turret.goToSetpoint(90)
-
 while withRobot and not btn.any() and stage < 3:
-    subsysLin.onRun()
-    subsysRot.onRun()
+    # Initial Mapping
+    if stage == 0:
+        reset()
+        # calculateDriftCorrection()
 
-    if step == 0:
-        progressStep()
-    elif step == 1:
-        subsysLin.setTarget(subsysLin.setpoint + cellLength)
-        progressStep()
-    elif step == 2:
-        if subsysLin.isOnTarget():
-            step = 1
+        Leds.set_color(Leds.LEFT, Leds.RED)
+        Leds.set_color(Leds.RIGHT, Leds.RED)
+
+        # while not btn.any():
+        #     pass
+
+        Leds.set_color(Leds.LEFT, Leds.GREEN)
+        Leds.set_color(Leds.RIGHT, Leds.GREEN)
+
+        time.sleep(1)
+        
+        for t in subsystems:
+            t.start()
+    
+        field[path[-1][1]][path[-1][0]] = mapCellInitial()
+
+        progressStage()
+
+    # Periodic
+    else:
+        subsysLin.onRun()
+        subsysRot.onRun()
+
+        if stage == 1:
+            if isRed():
+                progressStage()
+            elif step == 0:
+                if not lastReversed:
+                    field[path[-1][1]][path[-1][0]] = mapCell()        
+
+                options = getOptions()
+
+                if "n" in options:
+                    north()
+                    lastReversed = False
+                elif "e" in options:
+                    east()
+                    lastReversed = False
+                elif "w" in options:
+                    west()
+                    lastReversed = False
+                elif "s" in options:
+                    south()
+                    lastReversed = False
+                else:
+                    if not lastReversed:
+                        printGrid(path)
+                        
+                    retrace()
+                    lastReversed = True
+                    del path[-1]
+                    del path[-1]
+
+                logPosition()
+
+                turret.goToSetpoint(90)
+                if getUltrasonicTurret() > wallDisLimit:
+                    turret.goToSetpoint(270)
+
+                progressStep()
+            elif step == 1:
+                if subsysRot.isOnTarget() and turret.isOnTarget():
+                    resetEncoders()
+                    subsysLin.setTarget(cellLength + 10)
+                    progressStep()
+            elif step == 2:
+                disError = subsysLin.getError()
+
+                if abs(disError) < cellLength / 3 or abs(disError) > cellLength * 2 / 3:
+                    calcGyroComp()
+                if subsysLin.isOnTarget():
+                    progressStep()
+            elif step == 3:
+                if stepTime() > 2:
+                    step = 0
 
     # if stage == 0:
     #     if isRed():

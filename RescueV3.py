@@ -356,7 +356,7 @@ def moveToNextCell():
 
     while not isCorrectEnc():
         newSideDis = getUltrasonicTurret()
-        #print(str(newSideDis), str(getGyro()), str(senGyro.value()))
+        print(str(newSideDis), str(getGyro()), str(senGyro.value()))
         if abs(newSideDis - cellDisLeft) < 80 and abs(newSideDis - lastSideDis) <= 20:
             if newSideDis > lastSideDis:
                 setGyro(getGyro() + 5 * wallCorrectionMult)
