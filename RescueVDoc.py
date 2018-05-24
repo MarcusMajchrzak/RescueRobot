@@ -78,22 +78,11 @@ def reset():
     motClaw.position = 0
     claw.start()
 
-# def calculateDriftCorrection():
-#     global gyroDriftRate
-
-#     position = []
-#     for i in range(5):
-#         position.append(senGyro.value())
-#         time.sleep(1)
-#     position.append(senGyro.value())
-
-#     gyroDriftRate = (position[-1] - position[0]) / 5
-
 def getDriftCorrection():
     return -(time.time() - gyroDriftStart) * gyroDriftRate
 
 def getGyro():
-    return senGyro.value() - gyroOffset# + getDriftCorrection()
+    return senGyro.value() - gyroOffset
 
 def setGyro(angle):
     global gyroOffset
@@ -108,9 +97,6 @@ def getGyroError():
 def resetEncoders():
     motLeft.position = 0
     motRight.position = 0
-
-# def getEncoderPos():
-#     return ((motLeft.position + motRight.position) / 2) / 360 * wheelCircumference
 
 def getEncoderError():
     return motLeft.position - motRight.position
@@ -132,7 +118,6 @@ def getEncoderPos():
 
     if us < cellLength * 2 / 3:
         return targetEnc + cellDisFront - us
-    # return getEncoderPos()
     return ((motLeft.position + motRight.position) / 2) / 360 * wheelCircumference
 
 def getUltrasonicTurret():
@@ -258,39 +243,6 @@ def mapCell():
     clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
 
     resetEncoders()
-    
-    # targetEnc = 50
-    # while not isCorrectEnc():
-    #     moveEncoder()
-    # stop()
-
-    # spinTurretToPos(270)
-    # time.sleep(0.5)
-    # clearLeft = clearLeft or getUltrasonicTurret() > wallDisLimit
-
-    # spinTurretToPos(90)
-    # time.sleep(0.5)
-    # clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
-
-    # targetEnc = -50
-    # while not isCorrectEnc():
-    #     moveEncoder()
-    # stop()
-
-    # spinTurretToPos(270)
-    # time.sleep(0.5)
-    # clearLeft = clearLeft or getUltrasonicTurret() > wallDisLimit
-
-    # spinTurretToPos(90)
-    # time.sleep(0.5)
-    # clearRight = clearRight or getUltrasonicTurret() > wallDisLimit
-    
-    # targetEnc = 0
-    # while not isCorrectEnc():
-    #     moveEncoder()
-    # stop()
-    
-    # targetTurret = 180
 
     if targetAngle == angNorth:
         if clearFront:
@@ -383,7 +335,6 @@ def moveToNextCell():
 
     while not isCorrectEnc():
         newSideDis = getUltrasonicTurret()
-        # print(str(newSideDis), str(getGyro()), str(senGyro.value()))
         if abs(newSideDis - cellDisLeft) < 200 and abs(newSideDis - lastSideDis) <= 20 and abs(getEncoderPos() - targetEnc) > cellLength / 2:
             if newSideDis > lastSideDis:
                 setGyro(getGyro() + 3.5 * wallCorrectionMult)
@@ -402,12 +353,10 @@ def moveToNextCell():
     
         while getGyro() < targetAngle + 20:
             tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
-            dis = getUltrasonicFront()
             cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
 
         while getGyro() > targetAngle - 20:
             tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
-            dis = getUltrasonicFront()
             cellsToWall = max(int(getUltrasonicFront() / cellLength), cellsToWall)
             
         turnToAngle(targetAngle)
@@ -460,9 +409,7 @@ def calibrateGyroFront():
         tankDrive(spDriveSlow - 10, -spDriveSlow + 10)
         dis = getUltrasonicFront()
         ang = getGyro()
-        
-        #print(str(ang) + ": " + str(dis))
-        
+                
         if dis < minDis and dis > 20:
             minDis = dis
             minAng = ang
@@ -476,9 +423,7 @@ def calibrateGyroFront():
         tankDrive(-spDriveSlow + 10, spDriveSlow - 10)
         dis = getUltrasonicFront()
         ang = getGyro()
-        
-        #print(str(ang) + ": " + str(dis))
-        
+                
         if dis < minDis and dis > 20:
             minDis = dis
             minAng = ang
@@ -618,8 +563,6 @@ startTime = time.time()
 lastReversed = True
 
 if withRobot:
-    # calculateDriftCorrection()
-
     Leds.set_color(Leds.LEFT, Leds.RED)
     Leds.set_color(Leds.RIGHT, Leds.RED)
 
@@ -637,7 +580,7 @@ if withRobot:
 
 def isRed():
     count = 0
-    for i in range(10):
+    for _ in range(10):
         time.sleep(0.1)
         if senColour.color == 5:
             count += 1
@@ -660,49 +603,57 @@ def retrace():
     else:
         east()
 
+# Runs repeatedly during execution
 while withRobot:
+    # If the robot hasn't been to this cell, it needs to map it and add the information
+    # to the 2D field array
     if not lastReversed:
         field[path[-1][1]][path[-1][0]] = mapCell()        
 
+    # Gets the options from the field array for the current cell, removing any that the
+    # robot has already traversed
     options = getOptions()
 
-# PRIORITIES HERE
-    if "s" in options:
-        south()
-        lastReversed = False
-    elif "n" in options:
+    # Controls robot movement, choosing a direction based on a list of cardinal priorities.
+    # Using cardinal directions instead of relative directions (such as left and right)
+    # usually causes the robot to traverse loops without ever having to backtrack
+    if "n" in options:
         north()
         lastReversed = False
-    elif "w" in options:
-        west()
+    elif "s" in options:
+        south()
         lastReversed = False
     elif "e" in options:
         east()
         lastReversed = False
+    elif "w" in options:
+        west()
+        lastReversed = False
     else:
-        if not lastReversed:
-            printGrid(path)
-            
+        # Retraces the last movement, by checking the coordinates of the last location and
+        # determining the direction it needs to go in to return to that position
         retrace()
         lastReversed = True
-        del path[-1]
-        del path[-1]
+        del path[-1] # Removes retrace from path
+        del path[-1] # Removes movement to dead-end from path
 
+    # Records the cell as having been visited, so that it doesn't explore it again
     logPosition()
-    print(path[-1])
 
     red = isRed()
 
     while red >= 3 and not foundVictim:
         if red >= 8:
-            print("Found it!")
-
             Leds.set_color(Leds.LEFT, Leds.AMBER)
             Leds.set_color(Leds.RIGHT, Leds.AMBER)
             
+            # Sets the claw position to grab the victim
+            # The claw MotorSystem will keep it in position
             claw.setTarget(clawMinPos)
             time.sleep(0.5)
 
+            # While the robot isn't in its initial position, retrace steps
+            # This works the same as retracing its steps during the DFS stage
             while len(path) > 0:
                 retrace()
                 del path[-1]
@@ -711,31 +662,3 @@ while withRobot:
             exit()
         else:
             red = isRed()
-
-#-----Execute Search-----#
-lastReversed = False
-
-while len(path) > 0 and not "f" in field[path[-1][1]][path[-1][0]]:
-    options = getOptions()
-    if "n" in options:
-        north()
-        lastReversed = False
-    elif "e" in options:
-        east()
-        lastReversed = False
-    elif "s" in options:
-        south()
-        lastReversed = False
-    elif "w" in options:
-        west()
-        lastReversed = False
-    else:
-        if not lastReversed:
-            printGrid(path)
-        del path[-1]
-        lastReversed = True
-    logPosition()
-
-if len(path) > 0:
-    printGrid(path)
-
